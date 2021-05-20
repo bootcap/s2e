@@ -42,7 +42,7 @@ typedef std::pair<uint64_t, uint64_t> SymbolicMmioRange;
 
 typedef llvm::SmallVector<SymbolicMmioRange, 4> SymbolicMmioRanges;
 
-class SymbolicPeripherals : public Plugin {
+class RatavaDump : public Plugin {
     S2E_PLUGIN
 
 private:
@@ -64,11 +64,15 @@ public:
                  uint32_t  /* writeconcretevalue */>
         onSymbolicNLPRegisterWriteEvent;
 
-    SymbolicPeripherals(S2E *s2e) : Plugin(s2e) {
+    RatavaDump(S2E *s2e) : Plugin(s2e) {
     }
 
     void initialize();
-
+    void onTranslateInstruction(ExecutionSignal *signal,
+                                                S2EExecutionState *state,
+                                                TranslationBlock *tb,
+                                                uint64_t pc);
+    void onInstructionExecution(S2EExecutionState *state, uint64_t pc);
     bool isMmioSymbolic(uint64_t physAddr);
 
     klee::ref<klee::Expr> createExpression(S2EExecutionState *state, SymbolicHardwareAccessType type, uint64_t address,

@@ -27,7 +27,7 @@
 
 #include <llvm/Support/CommandLine.h>
 
-#include "SymbolicPeripherals.h"
+#include "RatavaDump.h"
 
 #include <sys/time.h>
 #include <sys/types.h>
@@ -47,8 +47,8 @@ extern "C" {
 static bool symbhw_is_mmio_symbolic(struct MemoryDesc *mr, uint64_t physaddr, uint64_t size, void *opaque);
 }
 
-int SymbolicPeripherals::read_log_count = 0;
-int SymbolicPeripherals::write_log_count = 0;
+int RatavaDump::read_log_count = 0;
+int RatavaDump::write_log_count = 0;
 
 struct timeval current_time(){
     struct timeval tv;
@@ -63,18 +63,35 @@ static klee::ref<klee::Expr> symbhw_symbread(struct MemoryDesc *mr, uint64_t phy
 static void symbhw_symbwrite(struct MemoryDesc *mr, uint64_t physaddress, const klee::ref<klee::Expr> &value,
                              SymbolicHardwareAccessType type, void *opaque);
 
-S2E_DEFINE_PLUGIN(SymbolicPeripherals, "SymbolicPeripherals S2E plugin", "", );
+S2E_DEFINE_PLUGIN(RatavaDump, "RatavaDump S2E plugin", "", );
 
-void SymbolicPeripherals::initialize() {
+void RatavaDump::initialize() {
     if (!configSymbolicMmioRange()) {
         getWarningsStream() << "Could not parse config\n";
         exit(-1);
     }
 
     g_symbolicMemoryHook = SymbolicMemoryHook(symbhw_is_mmio_symbolic, symbhw_symbread, symbhw_symbwrite, this);
+    s2e()->getCorePlugin()->onTranslateInstructionStart.connect(sigc::mem_fun(*this, &RatavaDump::onTranslateInstruction));
 }
 
-bool SymbolicPeripherals::configSymbolicMmioRange(void) {
+void RatavaDump::onTranslateInstruction(ExecutionSignal *signal,
+                                                S2EExecutionState *state,
+                                                TranslationBlock *tb,
+                                                uint64_t pc) {
+    if (pc == 0x5a0) {
+        // When we find an interesting address, ask S2E to invoke our callback when the address is actually
+        // executed
+        signal->connect(sigc::mem_fun(*this, &RatavaDump::onInstructionExecution));
+    }
+}
+
+void RatavaDump::onInstructionExecution(S2EExecutionState *state, uint64_t pc) {
+    //RatavaDump *hw = static_cast<RatavaDump *>(this);
+    getDebugStream() << "Executing instruction at " << hexval(pc) << '\n';
+}
+
+bool RatavaDump::configSymbolicMmioRange(void) {
     SymbolicMmioRange m;
 
     // ARM MMIO range 0x40000000-0x60000000
@@ -87,7 +104,7 @@ bool SymbolicPeripherals::configSymbolicMmioRange(void) {
     return true;
 }
 
-template <typename T, typename U> inline bool SymbolicPeripherals::isSymbolic(T ports, U port) {
+template <typename T, typename U> inline bool RatavaDump::isSymbolic(T ports, U port) {
     for (auto &p : ports) {
         if (port >= p.first && port <= p.second) {
             return true;
@@ -98,7 +115,7 @@ template <typename T, typename U> inline bool SymbolicPeripherals::isSymbolic(T 
 }
 
 
-bool SymbolicPeripherals::isMmioSymbolic(uint64_t physAddr) {
+bool RatavaDump::isMmioSymbolic(uint64_t physAddr) {
     return isSymbolic(m_mmio, physAddr);
 }
 
@@ -116,7 +133,7 @@ static void SymbHwGetConcolicVector(uint64_t in, unsigned size, ConcreteArray &o
     }
 }
 
-klee::ref<klee::Expr> SymbolicPeripherals::createExpression(S2EExecutionState *state, SymbolicHardwareAccessType type,
+klee::ref<klee::Expr> RatavaDump::createExpression(S2EExecutionState *state, SymbolicHardwareAccessType type,
                                                          uint64_t address, unsigned size, uint64_t concreteValue) {
 
     std::stringstream ss;
@@ -148,7 +165,7 @@ klee::ref<klee::Expr> SymbolicPeripherals::createExpression(S2EExecutionState *s
 
 //////////////////////////////////////////////////////////////////////
 static bool symbhw_is_mmio_symbolic(struct MemoryDesc *mr, uint64_t physaddr, uint64_t size, void *opaque) {
-    SymbolicPeripherals *hw = static_cast<SymbolicPeripherals *>(opaque);
+    RatavaDump *hw = static_cast<RatavaDump *>(opaque);
     return hw->isMmioSymbolic(physaddr);
 }
 
@@ -156,19 +173,19 @@ static bool symbhw_is_mmio_symbolic(struct MemoryDesc *mr, uint64_t physaddr, ui
 static klee::ref<klee::Expr> symbhw_symbread(struct MemoryDesc *mr, uint64_t physaddress,
                                              const klee::ref<klee::Expr> &value, SymbolicHardwareAccessType type,
                                              void *opaque) {
-    SymbolicPeripherals *hw = static_cast<SymbolicPeripherals *>(opaque);
+    RatavaDump *hw = static_cast<RatavaDump *>(opaque);
 
     if (DebugSymbHw) {
         hw->getDebugStream(g_s2e_state) << "reading mmio " << hexval(physaddress) << " value: " << value << "\n";
     }
     struct timeval tv = current_time();
     char buffer[100];
-    sprintf(buffer, "~/uEmu/test_log/read_%ld_%ld_%d.txt", tv.tv_sec, tv.tv_usec, SymbolicPeripherals::read_log_count++);
+    sprintf(buffer, "/home/cap/uEmu/test_log/read_%ld_%ld_%d.txt", tv.tv_sec, tv.tv_usec, RatavaDump::read_log_count++);
 
     char log[205];
     sprintf(log, "read mmio: [%ld] value: []", physaddress);
 
-    int fd = open(buffer, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IROTH);
+    int fd = open(buffer, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
     if (fd != -1) {
 	write(fd, log, sizeof(log));
 	close(fd);
@@ -181,9 +198,11 @@ static klee::ref<klee::Expr> symbhw_symbread(struct MemoryDesc *mr, uint64_t phy
 
 static void symbhw_symbwrite(struct MemoryDesc *mr, uint64_t physaddress, const klee::ref<klee::Expr> &value,
                              SymbolicHardwareAccessType type, void *opaque) {
-    SymbolicPeripherals *hw = static_cast<SymbolicPeripherals *>(opaque);
+    RatavaDump *hw = static_cast<RatavaDump *>(opaque);
     uint32_t curPc = g_s2e_state->regs()->getPc();
 
+    hw->getDebugStream() << "writing mmio " << hexval(physaddress) << " value: " << value
+                                        << " pc: " << hexval(curPc) << "\n";
     if (DebugSymbHw) {
         hw->getDebugStream(g_s2e_state) << "writing mmio " << hexval(physaddress) << " value: " << value
                                         << " pc: " << hexval(curPc) << "\n";
@@ -191,12 +210,12 @@ static void symbhw_symbwrite(struct MemoryDesc *mr, uint64_t physaddress, const 
 
     struct timeval tv = current_time();
     char buffer[100];
-    sprintf(buffer, "~/uEmu/test_log/write_%ld_%ld_%d.txt", tv.tv_sec, tv.tv_usec, SymbolicPeripherals::write_log_count++);
+    sprintf(buffer, "/home/cap/uEmu/test_log/write_%ld_%ld_%d.txt", tv.tv_sec, tv.tv_usec, RatavaDump::write_log_count++);
 
     char log[205];
     sprintf(log, "writing mmio: [%ld] value: [] pc: [%d]", physaddress, curPc);
 
-    int fd = open(buffer, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IROTH);
+    int fd = open(buffer, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
     if (fd != -1) {
 	write(fd, log, sizeof(log));
 	close(fd);
@@ -205,7 +224,7 @@ static void symbhw_symbwrite(struct MemoryDesc *mr, uint64_t physaddress, const 
     hw->onWritePeripheral(g_s2e_state, physaddress, value);
 }
 
-void SymbolicPeripherals::onWritePeripheral(S2EExecutionState *state, uint64_t phaddr,
+void RatavaDump::onWritePeripheral(S2EExecutionState *state, uint64_t phaddr,
                                                 const klee::ref<klee::Expr> &value) {
 
     uint32_t writeConcreteValue;

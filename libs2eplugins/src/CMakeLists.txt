@@ -146,7 +146,7 @@ add_library(
     s2e/Plugins/Lua/LuaExpression.cpp
     s2e/Plugins/Lua/LuaCoreEvents.cpp
 
-    s2e/Plugins/RatavaDump/SymbolicPeripherals.cpp
+    s2e/Plugins/RatavaDump/RatavaDump.cpp
 
     ${PROTO_SRCS} ${PROTO_HDRS}
 )
@@ -248,7 +248,7 @@ add_library(
     # Fuzzer
     s2e/Plugins/Fuzzer/AFLFuzzer.cpp
 
-    s2e/Plugins/RatavaDump/SymbolicPeripherals.cpp
+    s2e/Plugins/RatavaDump/RatavaDump.cpp
 
     ${PROTO_SRCS} ${PROTO_HDRS}
 
