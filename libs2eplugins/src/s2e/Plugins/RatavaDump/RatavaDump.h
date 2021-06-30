@@ -72,6 +72,11 @@ public:
                                                 S2EExecutionState *state,
                                                 TranslationBlock *tb,
                                                 uint64_t pc);
+    void onConcreteDataMemoryAccess(S2EExecutionState *state,
+                 uint64_t v_addr, 
+                 uint64_t value,
+                 uint8_t size,
+                 unsigned flag);
     void onInstructionExecution(S2EExecutionState *state, uint64_t pc);
     bool isMmioSymbolic(uint64_t physAddr);
 

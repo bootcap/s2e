@@ -35,6 +35,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include </home/cap/uEmu/s2e/libcpu/include/cpu/arm/cpu.h>
+
 namespace {
 llvm::cl::opt<bool> DebugSymbHw("debug-ratava-dump", llvm::cl::init(false));
 }
@@ -49,6 +51,8 @@ static bool symbhw_is_mmio_symbolic(struct MemoryDesc *mr, uint64_t physaddr, ui
 
 int RatavaDump::read_log_count = 0;
 int RatavaDump::write_log_count = 0;
+
+std::ofstream RatavaOut("/home/cap/uEmu/test_log/ratava_log.txt"); 
 
 struct timeval current_time(){
     struct timeval tv;
@@ -73,22 +77,32 @@ void RatavaDump::initialize() {
 
     g_symbolicMemoryHook = SymbolicMemoryHook(symbhw_is_mmio_symbolic, symbhw_symbread, symbhw_symbwrite, this);
     s2e()->getCorePlugin()->onTranslateInstructionStart.connect(sigc::mem_fun(*this, &RatavaDump::onTranslateInstruction));
+    s2e()->getCorePlugin()->onConcreteDataMemoryAccess.connect(sigc::mem_fun(*this, &RatavaDump::onConcreteDataMemoryAccess));
 }
 
 void RatavaDump::onTranslateInstruction(ExecutionSignal *signal,
                                                 S2EExecutionState *state,
                                                 TranslationBlock *tb,
                                                 uint64_t pc) {
-    if (pc == 0x5a0) {
-        // When we find an interesting address, ask S2E to invoke our callback when the address is actually
-        // executed
-        signal->connect(sigc::mem_fun(*this, &RatavaDump::onInstructionExecution));
-    }
+    // When we find an interesting address, ask S2E to invoke our callback when the address is actually
+    signal->connect(sigc::mem_fun(*this, &RatavaDump::onInstructionExecution));
+}
+
+void RatavaDump::onConcreteDataMemoryAccess(S2EExecutionState *state,
+                 uint64_t v_addr, // virtual address
+                 uint64_t value, // value
+                 uint8_t size, // size
+                 unsigned flag) { // flags
+    uint64_t s = size;
+    RatavaOut << "Access Memory: virtual_address[" << v_addr
+	   << "] value[" << value
+	   << "] size[" << s
+	   << "] flag[" << flag
+	   << "] \n";
 }
 
 void RatavaDump::onInstructionExecution(S2EExecutionState *state, uint64_t pc) {
-    //RatavaDump *hw = static_cast<RatavaDump *>(this);
-    getDebugStream() << "Executing instruction at " << hexval(pc) << '\n';
+    RatavaOut << "Executing instruction at " << hexval(pc) << '\n';
 }
 
 bool RatavaDump::configSymbolicMmioRange(void) {
@@ -178,21 +192,12 @@ static klee::ref<klee::Expr> symbhw_symbread(struct MemoryDesc *mr, uint64_t phy
     if (DebugSymbHw) {
         hw->getDebugStream(g_s2e_state) << "reading mmio " << hexval(physaddress) << " value: " << value << "\n";
     }
-    struct timeval tv = current_time();
-    char buffer[100];
-    sprintf(buffer, "/home/cap/uEmu/test_log/read_%ld_%ld_%d.txt", tv.tv_sec, tv.tv_usec, RatavaDump::read_log_count++);
 
-    char log[205];
-    sprintf(log, "read mmio: [%ld] value: []", physaddress);
-
-    int fd = open(buffer, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
-    if (fd != -1) {
-	write(fd, log, sizeof(log));
-	close(fd);
-    }
-	
     unsigned size = value->getWidth() / 8;
     uint64_t concreteValue = g_s2e_state->toConstantSilent(value)->getZExtValue();
+
+    RatavaOut << "read mmio: [" << physaddress << "] value: [" << value << "] concreteValue: [" << concreteValue << "]" << std::endl; 
+
     return hw->createExpression(g_s2e_state, SYMB_MMIO, physaddress, size, concreteValue);
 }
 
@@ -208,18 +213,8 @@ static void symbhw_symbwrite(struct MemoryDesc *mr, uint64_t physaddress, const 
                                         << " pc: " << hexval(curPc) << "\n";
     }
 
-    struct timeval tv = current_time();
-    char buffer[100];
-    sprintf(buffer, "/home/cap/uEmu/test_log/write_%ld_%ld_%d.txt", tv.tv_sec, tv.tv_usec, RatavaDump::write_log_count++);
-
-    char log[205];
-    sprintf(log, "writing mmio: [%ld] value: [] pc: [%d]", physaddress, curPc);
-
-    int fd = open(buffer, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);
-    if (fd != -1) {
-	write(fd, log, sizeof(log));
-	close(fd);
-    }
+    RatavaOut << "write mmio: [" << physaddress << "] value: [" << value << "]" << " pc: " << hexval(curPc) << std::endl; 
+    value->printKind(hw->getDebugStream(), klee::Expr::Kind::Concat); 
 
     hw->onWritePeripheral(g_s2e_state, physaddress, value);
 }
