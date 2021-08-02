@@ -35,7 +35,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include </home/cap/uEmu/s2e/libcpu/include/cpu/arm/cpu.h>
+#include <s2e/cpu.h>
 
 namespace {
 llvm::cl::opt<bool> DebugSymbHw("debug-ratava-dump", llvm::cl::init(false));
