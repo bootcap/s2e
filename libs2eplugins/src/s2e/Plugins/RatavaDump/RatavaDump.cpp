@@ -52,7 +52,7 @@ static bool symbhw_is_mmio_symbolic(struct MemoryDesc *mr, uint64_t physaddr, ui
 int RatavaDump::read_log_count = 0;
 int RatavaDump::write_log_count = 0;
 
-std::ofstream RatavaOut("/home/cap/uEmu/test_log/ratava_log.txt"); 
+std::ofstream RatavaOut;
 
 struct timeval current_time(){
     struct timeval tv;
@@ -78,6 +78,15 @@ void RatavaDump::initialize() {
     g_symbolicMemoryHook = SymbolicMemoryHook(symbhw_is_mmio_symbolic, symbhw_symbread, symbhw_symbwrite, this);
     s2e()->getCorePlugin()->onTranslateInstructionStart.connect(sigc::mem_fun(*this, &RatavaDump::onTranslateInstruction));
     s2e()->getCorePlugin()->onConcreteDataMemoryAccess.connect(sigc::mem_fun(*this, &RatavaDump::onConcreteDataMemoryAccess));
+
+    std::string log_dir = s2e()->getConfig()->getString(getConfigKey() + ".instructionTraceLogAddress");
+    getDebugStream() << "Got Configure instructionTraceLogAddress: " << log_dir << "\n";
+    if (!llvm::sys::fs::exists(log_dir)) {
+        getWarningsStream() << "Config instructionTraceLogAddress not found!\n";
+        exit(-1);
+    }
+
+    RatavaOut.open(log_dir + "/ratava_log.txt"); 
 }
 
 void RatavaDump::onTranslateInstruction(ExecutionSignal *signal,
